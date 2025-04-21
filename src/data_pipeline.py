@@ -1,6 +1,6 @@
 """
 Data Pipeline for HDP-HMM MCMC Financial Regime Detection
-- Fetches SPY daily data using yfinance
+- Fetches SPY daily data using yfinance with fallback to alternative sources
 - Calculates log returns
 - Prepares data for model training
 """
@@ -11,6 +11,9 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 from datetime import datetime
 import os
+import time
+import pandas_datareader as pdr
+import requests
 
 class DataPipeline:
     def __init__(self, ticker="SPY", start_date="2000-01-01", end_date=None):
@@ -34,7 +37,7 @@ class DataPipeline:
         
     def fetch_data(self, max_retries=3):
         """
-        Fetch daily data for the specified ticker
+        Fetch daily data for the specified ticker with fallback to alternative sources
         
         Parameters:
         -----------
@@ -58,19 +61,55 @@ class DataPipeline:
                 )
                 
                 if self.data is not None and not self.data.empty:
-                    print(f"Successfully downloaded {len(self.data)} rows of data")
+                    print(f"Successfully downloaded {len(self.data)} rows of data using yfinance")
                     return self.data
                 else:
                     print(f"Warning: Downloaded data is empty. Attempt {attempt+1}/{max_retries}")
                     
             except Exception as e:
-                print(f"Error downloading data (Attempt {attempt+1}/{max_retries}): {str(e)}")
+                print(f"Error downloading data from yfinance (Attempt {attempt+1}/{max_retries}): {str(e)}")
                 if attempt < max_retries - 1:
-                    print("Retrying...")
-                    
-        if self.data is None or self.data.empty:
-            print("All download attempts failed. Creating empty DataFrame.")
-            self.data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'])
+                    print("Retrying with yfinance...")
+                    time.sleep(1)  # Add delay between retries
+        
+        print("Trying alternative data sources...")
+        
+        try:
+            print("Trying Yahoo Finance via pandas_datareader...")
+            self.data = pdr.get_data_yahoo(
+                self.ticker,
+                start=self.start_date,
+                end=self.end_date
+            )
+            if self.data is not None and not self.data.empty:
+                print(f"Successfully downloaded {len(self.data)} rows of data using pandas_datareader (Yahoo)")
+                return self.data
+        except Exception as e:
+            print(f"Error downloading data from pandas_datareader (Yahoo): {str(e)}")
+        
+        try:
+            print("Trying Stooq data source...")
+            self.data = pdr.stooq.StooqDailyReader(
+                self.ticker,
+                start=self.start_date,
+                end=self.end_date
+            ).read()
+            if self.data is not None and not self.data.empty:
+                print(f"Successfully downloaded {len(self.data)} rows of data using Stooq")
+                if 'Close' not in self.data.columns and 'close' in self.data.columns:
+                    self.data.rename(columns={
+                        'open': 'Open',
+                        'high': 'High',
+                        'low': 'Low',
+                        'close': 'Close',
+                        'volume': 'Volume'
+                    }, inplace=True)
+                return self.data
+        except Exception as e:
+            print(f"Error downloading data from Stooq: {str(e)}")
+        
+        print("All data sources failed. Creating empty DataFrame.")
+        self.data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'])
             
         return self.data
     
@@ -157,12 +196,25 @@ class DataPipeline:
         -----------
         save_path : str
             Path to save the plot (default: None, display only)
+        
+        Returns:
+        --------
+        bool
+            True if plot was created, False if data was empty
         """
         if self.data is None or self.data.empty:
             self.data = self.fetch_data()
             
+        if self.data.empty:
+            print("Warning: Cannot create plot with empty data")
+            return False
+            
         if self.log_returns is None:
             self.log_returns = self.calculate_log_returns()
+            
+        if isinstance(self.log_returns, pd.Series) and self.log_returns.empty:
+            print("Warning: Cannot create plot with empty log returns")
+            return False
             
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
         
@@ -191,6 +243,8 @@ class DataPipeline:
         else:
             plt.show()
             
+        return True
+            
     def save_data(self, directory="data"):
         """
         Save the data and log returns to CSV files
@@ -199,27 +253,45 @@ class DataPipeline:
         -----------
         directory : str
             Directory to save the data (default: "data")
+            
+        Returns:
+        --------
+        bool
+            True if data was saved, False if data was empty
         """
         if self.data is None or self.data.empty:
             self.data = self.fetch_data()
             
+        if self.data.empty:
+            print("Warning: Cannot save empty data")
+            return False
+            
         if self.log_returns is None:
             self.log_returns = self.calculate_log_returns()
+            
+        if isinstance(self.log_returns, pd.Series) and self.log_returns.empty:
+            print("Warning: Cannot save empty log returns")
+            return False
             
         os.makedirs(directory, exist_ok=True)
         
         # Save price data
         self.data.to_csv(os.path.join(directory, f"{self.ticker}_data.csv"))
+        print(f"Price data saved to {os.path.join(directory, f'{self.ticker}_data.csv')}")
         
         if isinstance(self.log_returns, pd.Series):
             self.log_returns.to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
         else:
-            pd.Series(
-                self.log_returns.flatten(), 
-                index=self.data.index[1:len(self.log_returns)+1]
-            ).to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
+            if hasattr(self.log_returns, 'flatten'):
+                pd.Series(
+                    self.log_returns.flatten(), 
+                    index=self.data.index[1:len(self.log_returns)+1]
+                ).to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
+            else:
+                self.log_returns.to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
         
-        print(f"Data saved to {directory}")
+        print(f"Log returns saved to {os.path.join(directory, f'{self.ticker}_log_returns.csv')}")
+        return True
 
 
 if __name__ == "__main__":
