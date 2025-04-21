@@ -2,10 +2,13 @@
 Main Script for HDP-HMM MCMC Financial Regime Detection
 - Orchestrates the entire workflow
 - Runs data pipeline, model training, signal generation, and benchmarking
+- Provides utility functions for data handling and alignment
 """
 
 import os
 import argparse
+import pandas as pd
+import numpy as np
 from datetime import datetime
 
 from data_pipeline import DataPipeline
@@ -13,6 +16,33 @@ from hdp_hmm import HDPHMM
 from model_training import train_model
 from signal_generation import RegimeSignalGenerator
 from benchmarking import run_benchmark
+
+def align_dates_with_data(dates, data):
+    """
+    Utility function to align dates with data index to prevent KeyError
+    
+    Parameters:
+    -----------
+    dates : array-like
+        Dates to align
+    data : pandas.DataFrame or pandas.Series
+        Data with dates as index
+        
+    Returns:
+    --------
+    pandas.Series or pandas.DataFrame
+        Data aligned with the provided dates, or all data if no dates match
+    """
+    if dates is None or data is None or data.empty:
+        return data
+        
+    aligned_dates = [date for date in dates if date in data.index]
+    
+    if not aligned_dates:
+        print("Warning: No dates found in data index. Using all available dates.")
+        return data
+        
+    return data.loc[aligned_dates]
 
 def main():
     """
