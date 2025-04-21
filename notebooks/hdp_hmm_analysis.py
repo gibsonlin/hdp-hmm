@@ -142,7 +142,12 @@ regime_change_signals = signal_generator.generate_regime_change_signals(
 
 print(regime_change_signals.head())
 
-test_prices = data['Close'][test_dates]
+test_dates_in_data = [date for date in test_dates if date in data.index]
+if not test_dates_in_data:
+    print("Warning: No test dates found in data index. Using all available dates.")
+    test_prices = data['Close']
+else:
+    test_prices = data['Close'].loc[test_dates_in_data]
 signal_generator.plot_signals(price_data=test_prices)
 
 print("\n## 5. Performance Evaluation")

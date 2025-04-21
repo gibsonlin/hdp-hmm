@@ -57,7 +57,8 @@ class StrategyBenchmark:
             'Signal': signals['Signal']
         })
         
-        aligned_data['Signal'] = aligned_data['Signal'].fillna(method='ffill').fillna(0)
+        aligned_data['Signal'] = aligned_data['Signal'].ffill()
+        aligned_data['Signal'] = aligned_data['Signal'].fillna(value=0)
         
         aligned_data['Returns'] = aligned_data['Price'].pct_change()
         
@@ -371,7 +372,12 @@ def run_benchmark(model_path, data_start_date="2010-01-01", train_ratio=0.7,
         confidence_threshold=confidence_threshold
     )
     
-    test_prices = data['Close'][test_dates]
+    test_dates_in_data = [date for date in test_dates if date in data.index]
+    if not test_dates_in_data:
+        print("Warning: No test dates found in data index. Using all available dates.")
+        test_prices = data['Close']
+    else:
+        test_prices = data['Close'].loc[test_dates_in_data]
     signal_generator.plot_signals(price_data=test_prices, save_path=os.path.join(save_dir, "signals.png"))
     
     print("Benchmarking strategy...")
