@@ -22,6 +22,8 @@ This project implements a non-parametric Bayesian approach to identify market re
   - `signal_generation.py`: Generates trading signals based on regime changes
   - `benchmarking.py`: Evaluates trading strategy performance
   - `main.py`: Orchestrates the entire workflow
+  - `live_trading_api.py`: API for live trading sessions to feed in forward data
+  - `live_data_ingest.py`: Module for live session data ingestion
 - `notebooks/`: Jupyter notebooks for interactive analysis
   - `hdp_hmm_analysis.py`: Python script that can be converted to a notebook
 - `models/`: Saved model files
@@ -66,7 +68,7 @@ jupyter notebook hdp_hmm_analysis.ipynb
 
 ### Data Pipeline
 
-The data pipeline fetches SPY daily data using yfinance and calculates log returns. It also provides functionality for splitting the data into training and testing sets.
+The data pipeline fetches SPY daily data using yfinance and calculates log returns. It also provides functionality for splitting the data into training and testing sets. The pipeline includes robust error handling and fallback to alternative data sources when yfinance fails.
 
 ```python
 from data_pipeline import DataPipeline
@@ -80,6 +82,97 @@ log_returns = pipeline.calculate_log_returns()
 
 # Split data into training and testing sets
 train_data, test_data = pipeline.split_data(train_ratio=0.7)
+```
+
+### Live Trading API
+
+The Live Trading API provides functionality for using the trained HDP-HMM model in live trading sessions. It allows feeding forward data for testing and generating real-time trading signals.
+
+```python
+from live_trading_api import LiveTradingAPI
+
+# Initialize API with a saved model
+api = LiveTradingAPI(
+    model_path="models/hdp_hmm_model.pkl",
+    mapping_method="mean_based",
+    confidence_threshold=0.6,
+    lookback_window=30
+)
+
+# Load historical data
+api.load_historical_data(ticker="SPY", start_date="2020-01-01")
+
+# Initialize live data
+api.initialize_live_data()
+
+# Generate signal for new data
+new_data = {"date": "2023-04-21", "Open": 415.2, "High": 417.8, "Low": 414.5, "Close": 416.3, "Volume": 75000000}
+signal = api.generate_signal(new_data)
+print(f"Signal: {signal}")
+
+# Run simulation with test data
+api.run_simulation(test_data, interval='1d')
+
+# Plot signals
+api.plot_signals()
+
+# Save session
+api.save_session()
+
+# Load saved session
+api = LiveTradingAPI.load_session(session_id="20230421_120000")
+```
+
+### Live Data Ingestion
+
+The Live Data Ingestion module provides tools for ingesting live financial data from various sources and feeding it into the Live Trading API.
+
+```python
+from live_data_ingest import LiveDataIngestor
+from live_trading_api import LiveTradingAPI
+
+# Initialize ingestor
+ingestor = LiveDataIngestor(ticker="SPY")
+
+# Initialize trading API
+api = LiveTradingAPI(
+    model_path="models/hdp_hmm_model.pkl",
+    mapping_method="mean_based",
+    confidence_threshold=0.6,
+    lookback_window=30
+)
+
+# Connect ingestor to trading API
+ingestor.connect_to_trading_api(api)
+
+# Ingest data from CSV file
+ingestor.ingest_from_csv("data/spy_data.csv", date_column="Date")
+
+# Ingest data from REST API
+ingestor.ingest_from_api(
+    api_url="https://api.example.com/data",
+    params={"symbol": "SPY", "interval": "1d"},
+    data_key="data",
+    timestamp_key="timestamp"
+)
+
+# Start WebSocket ingestion
+ingestor.start_websocket_ingest(
+    ws_url="wss://stream.example.com/market",
+    headers={"Authorization": "Bearer YOUR_API_KEY"}
+)
+
+# Process data queue and send to trading API
+ingestor.process_data_queue(batch_size=10, batch_interval=5)
+
+# Simulate live data from historical data
+ingestor.simulate_live_data(historical_data, interval='1d', delay=0.5)
+
+# Save session
+ingestor.save_session()
+
+# Load saved session
+ingestor = LiveDataIngestor.load_session(session_id="20230421_120000")
 ```
 
 ### HDP-HMM Model
