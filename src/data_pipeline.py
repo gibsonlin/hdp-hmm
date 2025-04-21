@@ -32,9 +32,14 @@ class DataPipeline:
         self.data = None
         self.log_returns = None
         
-    def fetch_data(self):
+    def fetch_data(self, max_retries=3):
         """
         Fetch daily data for the specified ticker
+        
+        Parameters:
+        -----------
+        max_retries : int
+            Maximum number of retry attempts if download fails (default: 3)
         
         Returns:
         --------
@@ -42,12 +47,31 @@ class DataPipeline:
             DataFrame containing the fetched data
         """
         print(f"Fetching data for {self.ticker} from {self.start_date} to {self.end_date}")
-        self.data = yf.download(
-            self.ticker, 
-            start=self.start_date, 
-            end=self.end_date, 
-            progress=False
-        )
+        
+        for attempt in range(max_retries):
+            try:
+                self.data = yf.download(
+                    self.ticker, 
+                    start=self.start_date, 
+                    end=self.end_date, 
+                    progress=False
+                )
+                
+                if self.data is not None and not self.data.empty:
+                    print(f"Successfully downloaded {len(self.data)} rows of data")
+                    return self.data
+                else:
+                    print(f"Warning: Downloaded data is empty. Attempt {attempt+1}/{max_retries}")
+                    
+            except Exception as e:
+                print(f"Error downloading data (Attempt {attempt+1}/{max_retries}): {str(e)}")
+                if attempt < max_retries - 1:
+                    print("Retrying...")
+                    
+        if self.data is None or self.data.empty:
+            print("All download attempts failed. Creating empty DataFrame.")
+            self.data = pd.DataFrame(columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'])
+            
         return self.data
     
     def calculate_log_returns(self):
@@ -56,13 +80,22 @@ class DataPipeline:
         
         Returns:
         --------
-        pandas.DataFrame
-            DataFrame containing the log returns
+        pandas.Series
+            Series containing the log returns
         """
         if self.data is None or self.data.empty:
             self.data = self.fetch_data()
             
-        self.log_returns = np.log(self.data['Close'] / self.data['Close'].shift(1)).dropna()
+        if self.data.empty:
+            print("Warning: Cannot calculate log returns from empty data")
+            self.log_returns = pd.Series(dtype=float)
+            return self.log_returns
+            
+        close_prices = self.data['Close']
+        # Calculate price ratio
+        price_ratio = close_prices / close_prices.shift(1)
+        self.log_returns = price_ratio.apply(np.log).dropna()
+        
         return self.log_returns
     
     def prepare_training_data(self):
@@ -77,7 +110,11 @@ class DataPipeline:
         if self.log_returns is None:
             self.log_returns = self.calculate_log_returns()
             
-        return self.log_returns.values.reshape(-1, 1)
+        if isinstance(self.log_returns, pd.Series) and self.log_returns.empty:
+            print("Warning: Cannot prepare training data from empty log returns")
+            return np.array([]).reshape(-1, 1)
+            
+        return np.array(self.log_returns).reshape(-1, 1)
     
     def split_data(self, train_ratio=0.7):
         """
@@ -96,9 +133,19 @@ class DataPipeline:
         if self.log_returns is None:
             self.log_returns = self.calculate_log_returns()
             
+        if isinstance(self.log_returns, pd.Series) and self.log_returns.empty:
+            print("Warning: Cannot split empty log returns")
+            empty_array = np.array([]).reshape(-1, 1)
+            return empty_array, empty_array
+            
         split_idx = int(len(self.log_returns) * train_ratio)
-        train_data = self.log_returns.iloc[:split_idx].values.reshape(-1, 1)
-        test_data = self.log_returns.iloc[split_idx:].values.reshape(-1, 1)
+        
+        if isinstance(self.log_returns, pd.Series):
+            train_data = np.array(self.log_returns.iloc[:split_idx]).reshape(-1, 1)
+            test_data = np.array(self.log_returns.iloc[split_idx:]).reshape(-1, 1)
+        else:
+            train_data = np.array(self.log_returns[:split_idx]).reshape(-1, 1)
+            test_data = np.array(self.log_returns[split_idx:]).reshape(-1, 1)
         
         return train_data, test_data
     
@@ -119,12 +166,18 @@ class DataPipeline:
             
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
         
+        # Plot price data
         ax1.plot(self.data.index, self.data['Close'])
         ax1.set_title(f"{self.ticker} Close Price")
         ax1.set_ylabel("Price ($)")
         ax1.grid(True)
         
-        ax2.plot(self.log_returns.index, self.log_returns)
+        if isinstance(self.log_returns, pd.Series):
+            ax2.plot(self.log_returns.index, self.log_returns)
+        else:
+            dates = self.data.index[1:]  # Skip first date due to log return calculation
+            ax2.plot(dates, self.log_returns)
+            
         ax2.set_title(f"{self.ticker} Log Returns")
         ax2.set_xlabel("Date")
         ax2.set_ylabel("Log Return")
@@ -155,8 +208,16 @@ class DataPipeline:
             
         os.makedirs(directory, exist_ok=True)
         
+        # Save price data
         self.data.to_csv(os.path.join(directory, f"{self.ticker}_data.csv"))
-        self.log_returns.to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
+        
+        if isinstance(self.log_returns, pd.Series):
+            self.log_returns.to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
+        else:
+            pd.Series(
+                self.log_returns.flatten(), 
+                index=self.data.index[1:len(self.log_returns)+1]
+            ).to_csv(os.path.join(directory, f"{self.ticker}_log_returns.csv"))
         
         print(f"Data saved to {directory}")
 
