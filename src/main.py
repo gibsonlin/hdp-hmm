@@ -60,17 +60,25 @@ def main():
     
     if not args.skip_training:
         print("\n=== Training HDP-HMM Model ===")
-        model, train_data, test_data = train_model(
-            data_start_date=args.data_start_date,
-            train_ratio=args.train_ratio,
-            n_iter=args.n_iter,
-            alpha=args.alpha,
-            gamma=args.gamma,
-            kappa=args.kappa,
-            max_states=args.max_states,
-            save_dir=models_dir,
-            plot_dir=plots_dir
-        )
+        try:
+            model, train_data, test_data = train_model(
+                data_start_date=args.data_start_date,
+                train_ratio=args.train_ratio,
+                n_iter=args.n_iter,
+                alpha=args.alpha,
+                gamma=args.gamma,
+                kappa=args.kappa,
+                max_states=args.max_states,
+                save_dir=models_dir,
+                plot_dir=plots_dir
+            )
+            
+            if train_data.size == 0 or test_data.size == 0:
+                raise ValueError("Training or testing data is empty. Cannot proceed with model training.")
+        except Exception as e:
+            print(f"Error during model training: {str(e)}")
+            print("Please check data availability or try a different date range.")
+            return
         
         model_files = [f for f in os.listdir(models_dir) if f.endswith('.pkl')]
         if model_files:
@@ -87,16 +95,21 @@ def main():
         print(f"\n=== Using existing model: {model_path} ===")
     
     print("\n=== Benchmarking Trading Strategy ===")
-    benchmark = run_benchmark(
-        model_path=model_path,
-        data_start_date=args.data_start_date,
-        train_ratio=args.train_ratio,
-        mapping_method=args.mapping_method,
-        confidence_threshold=args.confidence_threshold,
-        initial_capital=args.initial_capital,
-        transaction_cost=args.transaction_cost,
-        save_dir=args.output_dir
-    )
+    try:
+        benchmark = run_benchmark(
+            model_path=model_path,
+            data_start_date=args.data_start_date,
+            train_ratio=args.train_ratio,
+            mapping_method=args.mapping_method,
+            confidence_threshold=args.confidence_threshold,
+            initial_capital=args.initial_capital,
+            transaction_cost=args.transaction_cost,
+            save_dir=args.output_dir
+        )
+    except Exception as e:
+        print(f"Error during benchmarking: {str(e)}")
+        print("Please check data availability or try a different date range.")
+        return
     
     print("\n=== Workflow Completed ===")
     print(f"Results saved to {args.output_dir}")
