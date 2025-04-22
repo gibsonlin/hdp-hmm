@@ -3,6 +3,7 @@ Signal Generation Module for HDP-HMM MCMC Financial Regime Detection
 - Implements state-label-guideline mapping
 - Generates trading signals based on regime changes
 - Provides online filtering for real-time state probability calculation
+- Handles date alignment for price data and signals
 """
 
 import numpy as np
@@ -377,6 +378,33 @@ class RegimeSignalGenerator:
         
         return result
     
+    def align_dates_with_data(self, dates, data):
+        """
+        Align dates with data index to prevent KeyError
+        
+        Parameters:
+        -----------
+        dates : array-like
+            Dates to align
+        data : pandas.DataFrame or pandas.Series
+            Data with dates as index
+            
+        Returns:
+        --------
+        list
+            Aligned dates that exist in data index
+        """
+        if dates is None or data is None or data.empty:
+            return []
+            
+        aligned_dates = [date for date in dates if date in data.index]
+        
+        if not aligned_dates:
+            print("Warning: No dates found in data index. Using all available dates.")
+            return data.index.tolist()
+            
+        return aligned_dates
+    
     def plot_signals(self, price_data=None, save_path=None):
         """
         Plot trading signals with price data
@@ -405,6 +433,8 @@ class RegimeSignalGenerator:
                         for idx, row in self.signal_history.iterrows():
                             if row.get('Signal') == signal:
                                 signal_dates.append(idx)
+                        
+                        signal_dates = self.align_dates_with_data(signal_dates, price_data)
                         
                         for i in range(len(signal_dates) - 1):
                             ax1.axvspan(signal_dates[i], signal_dates[i+1], alpha=0.2, color=color)

@@ -252,8 +252,12 @@ class HDPHMM:
         
         for t in range(len(self.observations)):
             s = self.state_sequence[t]
-            log_likelihood += stats.multivariate_normal.logpdf(
-                x=self.observations[t], mean=self.means[s], cov=self.covariances[s])
+            if self.obs_dim == 1:
+                log_likelihood += stats.norm.logpdf(
+                    x=self.observations[t][0], loc=self.means[s][0], scale=np.sqrt(self.covariances[s][0, 0]))
+            else:
+                log_likelihood += stats.multivariate_normal.logpdf(
+                    x=self.observations[t], mean=self.means[s], cov=self.covariances[s].astype(float))
         
         transition_probs = self._compute_transition_probabilities()
         for t in range(1, len(self.observations)):
@@ -353,8 +357,12 @@ class HDPHMM:
         obs_likelihoods = np.zeros((n_samples, self.max_states))
         for s in self.active_states:
             for t in range(n_samples):
-                obs_likelihoods[t, s] = stats.multivariate_normal.pdf(
-                    x=data[t], mean=self.means[s], cov=self.covariances[s])
+                if self.obs_dim == 1:
+                    obs_likelihoods[t, s] = stats.norm.pdf(
+                        x=data[t][0], loc=self.means[s][0], scale=np.sqrt(self.covariances[s][0, 0]))
+                else:
+                    obs_likelihoods[t, s] = stats.multivariate_normal.pdf(
+                        x=data[t], mean=self.means[s], cov=self.covariances[s].astype(float))
         
         forward_probs = np.zeros((n_samples, self.max_states))
         
